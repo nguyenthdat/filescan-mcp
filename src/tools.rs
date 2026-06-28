@@ -44,7 +44,7 @@ impl FilescanService {
     // ---- filescan_scan_file ----
 
     #[tool(
-        description = "Upload a local file to Filescan.io for malware scanning. Returns a flow_id to track the scan. Required: file_path (local path to the file). Optional scan options: description, tags, password, is_private, is_private_report, skip_whitelisted, scan_engine (internal|mdcloud)."
+        description = "Upload a local file to Filescan.io for malware scanning. Returns a flow_id to track the scan. Required: file_path (local path to the file). Optional scan options: description, tags, propagate_tags, password, is_private, is_private_report, skip_whitelisted, scan_engine (internal|mdcloud)."
     )]
     async fn filescan_scan_file(
         &self,
@@ -63,7 +63,7 @@ impl FilescanService {
     // ---- filescan_scan_url ----
 
     #[tool(
-        description = "Submit a URL to Filescan.io for scanning. Required: url (string). Optional scan options: description, tags, password, is_private, is_private_report, skip_whitelisted, scan_engine (internal|mdcloud). Returns flow_id for tracking."
+        description = "Submit a URL to Filescan.io for scanning. Required: url (string). Optional scan options: description, tags, propagate_tags, password, is_private, is_private_report, skip_whitelisted, scan_engine (internal|mdcloud). Returns flow_id for tracking."
     )]
     async fn filescan_scan_url(
         &self,
@@ -149,7 +149,7 @@ impl FilescanService {
         Parameters(input): Parameters<SearchMatchesInput>,
     ) -> Result<CallToolResult, ErrorData> {
         self.client
-            .search_matches(input.report_ids, &input.query)
+            .search_matches(input.report_ids, &input.query, input.unique_files)
             .await
             .map(|r| json_result(&r))
             .unwrap_or_else(|e| Err(to_mcp_error(e)))
@@ -213,10 +213,14 @@ pub struct GetReportInput {
 }
 
 /// Input for `filescan_get_search_matches`.
-#[derive(Debug, Clone, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct SearchMatchesInput {
     #[schemars(description = "Array of report IDs to fetch matches for")]
     pub report_ids: Vec<String>,
+    /// If true, return only one match per unique file hash.
+    #[schemars(description = "Return only one match per unique file hash (default false)")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_files: Option<bool>,
     #[serde(flatten, default)]
     pub query: ReportSearchQuery,
 }

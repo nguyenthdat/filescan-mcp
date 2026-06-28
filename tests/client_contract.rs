@@ -46,7 +46,8 @@ async fn scan_url_with_options() {
         when.method(POST)
             .path("/api/scan/url")
             .body_contains("description=test+file")
-            .body_contains("tags=trojan");
+            .body_contains("tags=trojan")
+            .body_contains("propagate_tags=true");
         then.status(200)
             .header("content-type", "application/json")
             .body(r#"{"flow_id":"flow-456","priority":{"applied":50,"max_posibble":100}}"#);
@@ -62,7 +63,7 @@ async fn scan_url_with_options() {
         skip_whitelisted: None,
         scan_profile: None,
         scan_engine: Some(ScanEngine::Internal),
-        propagate_tags: None,
+        propagate_tags: Some(true),
     };
     let result = client
         .scan_url("https://example.com/malware.exe", Some(&options))
@@ -129,6 +130,44 @@ async fn scan_file_file_not_found() {
 }
 
 #[tokio::test]
+async fn scan_file_sends_propagate_tags() {
+    use std::io::Write;
+
+    let server = MockServer::start();
+    let dir = std::env::temp_dir();
+    let file_path = dir.join("filescan_test_propagate.txt");
+    let mut f = std::fs::File::create(&file_path).unwrap();
+    f.write_all(b"hello filescan").unwrap();
+
+    let mock = server.mock(|when, then| {
+        when.method(POST)
+            .path("/api/scan/file")
+            .header("X-Api-Key", "test-mock-key")
+            // Verify propagate_tags appears somewhere in the multipart body
+            .body_contains("propagate_tags");
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(r#"{"flow_id":"flow-propagate","priority":{"applied":100,"max_posibble":100}}"#);
+    });
+
+    let client = mock_client(&server);
+    let options = ScanOptions {
+        propagate_tags: Some(false),
+        description: Some("test propagate".into()),
+        ..Default::default()
+    };
+    let result = client
+        .scan_file(file_path.to_str().unwrap(), Some(&options))
+        .await
+        .unwrap();
+    mock.assert();
+    assert_eq!(result.flow_id, "flow-propagate");
+
+    // Cleanup
+    let _ = std::fs::remove_file(&file_path);
+}
+
+#[tokio::test]
 async fn search_reports_success() {
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
@@ -181,6 +220,7 @@ async fn search_matches_success() {
         .search_matches(
             vec!["id1".into(), "id2".into()],
             &ReportSearchQuery::default(),
+            None,
         )
         .await
         .unwrap();
@@ -189,6 +229,32 @@ async fn search_matches_success() {
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].report_id, "id1");
     assert_eq!(result[0].matches.len(), 1);
+}
+
+#[tokio::test]
+async fn search_matches_with_unique_files() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(POST)
+            .path("/api/reports/search/matches")
+            .query_param("unique_files", "true")
+            .json_body(serde_json::json!({"reports_ids": ["id1"]}));
+        then.status(200)
+            .body(r#"[{"report_id":"id1","matches":[]}]"#);
+    });
+
+    let client = mock_client(&server);
+    let result = client
+        .search_matches(
+            vec!["id1".into()],
+            &ReportSearchQuery::default(),
+            Some(true),
+        )
+        .await
+        .unwrap();
+    mock.assert();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].report_id, "id1");
 }
 
 #[tokio::test]

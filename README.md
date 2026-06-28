@@ -93,7 +93,7 @@ cargo clippy --all-targets -- -D warnings
 ### Caveats
 
 - The `max_posibble` typo in `ScanPriorityResponse` is handled with `#[serde(rename)]`. The schema also displays as `max_possible`.
-- For `POST /api/reports/search/matches`, the `unique_files` query parameter is not yet exposed in the tool input (only the body `reports_ids` and search query params).
+- For `POST /api/reports/search/matches`, `unique_files` is exposed as an optional query parameter alongside `reports_ids` and the shared search query filters.
 - Large response payloads (report bodies) use `serde_json::Value` rather than fully-typed structs — this is intentional to handle the `additionalProperties: true` schema.
 - `propagate_tags` defaults to `true` in the OpenAPI spec but is not sent if unset — let the API handle the default.
 - The `scan_file` tool uses `file_path` (local path), not base64 content. This is the MCP stdio convention.

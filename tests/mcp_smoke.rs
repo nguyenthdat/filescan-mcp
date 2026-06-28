@@ -17,6 +17,30 @@ fn page_size_from_i64_invalid() {
 }
 
 #[test]
+fn page_size_deserialize_valid() {
+    let ps: PageSize = serde_json::from_str("5").unwrap();
+    assert_eq!(ps.as_i64(), 5);
+    let ps: PageSize = serde_json::from_str("10").unwrap();
+    assert_eq!(ps.as_i64(), 10);
+    let ps: PageSize = serde_json::from_str("20").unwrap();
+    assert_eq!(ps.as_i64(), 20);
+}
+
+#[test]
+fn page_size_deserialize_invalid_rejected() {
+    let err = serde_json::from_str::<PageSize>("7").unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("page_size must be 5, 10, or 20"));
+    assert!(msg.contains("7"));
+
+    let err = serde_json::from_str::<PageSize>("0").unwrap_err();
+    assert!(err.to_string().contains("page_size must be 5, 10, or 20"));
+
+    let err = serde_json::from_str::<PageSize>("100").unwrap_err();
+    assert!(err.to_string().contains("page_size must be 5, 10, or 20"));
+}
+
+#[test]
 fn scan_priority_response_handles_typo() {
     let json = r#"{"applied": 100, "max_posibble": 200}"#;
     let p: ScanPriorityResponse = serde_json::from_str(json).unwrap();
@@ -124,4 +148,36 @@ fn scan_file_input_serializes_options() {
     let json = serde_json::to_string(&input).unwrap();
     assert!(json.contains("test desc"));
     assert!(json.contains("internal"));
+}
+
+#[test]
+fn search_matches_input_serializes_unique_files() {
+    // unique_files should appear at the top level of SearchMatchesInput, not
+    // inside the flattened ReportSearchQuery.
+    let input = filescan_mcp::tools::SearchMatchesInput {
+        report_ids: vec!["r1".into()],
+        unique_files: Some(true),
+        query: ReportSearchQuery::default(),
+    };
+    let json = serde_json::to_string(&input).unwrap();
+    assert!(json.contains("\"unique_files\":true"));
+    assert!(json.contains("\"report_ids\":[\"r1\"]"));
+}
+
+#[test]
+fn search_matches_input_without_unique_files() {
+    let input = filescan_mcp::tools::SearchMatchesInput {
+        report_ids: vec!["r1".into()],
+        unique_files: None,
+        query: ReportSearchQuery::default(),
+    };
+    let json = serde_json::to_string(&input).unwrap();
+    assert!(!json.contains("unique_files"));
+}
+
+#[test]
+fn page_size_json_schema_is_integer_type() {
+    let schema = schemars::schema_for!(PageSize);
+    let schema_json = serde_json::to_value(schema).unwrap();
+    assert_eq!(schema_json["type"], "integer");
 }

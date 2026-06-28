@@ -107,6 +107,9 @@ impl FilescanClient {
                 };
                 form = form.text("scan_engine", engine_str);
             }
+            if let Some(propagate_tags) = opts.propagate_tags {
+                form = form.text("propagate_tags", propagate_tags.to_string());
+            }
         }
 
         let path = "/api/scan/file";
@@ -158,6 +161,9 @@ impl FilescanClient {
                     ScanEngine::Mdcloud => "mdcloud",
                 };
                 params.push(("scan_engine".to_string(), engine_str.to_string()));
+            }
+            if let Some(propagate_tags) = opts.propagate_tags {
+                params.push(("propagate_tags".to_string(), propagate_tags.to_string()));
             }
         }
 
@@ -243,18 +249,23 @@ impl FilescanClient {
         &self,
         report_ids: Vec<String>,
         query: &ReportSearchQuery,
+        unique_files: Option<bool>,
     ) -> Result<Vec<MatchesResponseItem>, FilescanError> {
         let path = "/api/reports/search/matches";
         let url = self.url(path);
         let body = MatchesPayload { report_ids };
 
-        let resp = self
+        let mut req = self
             .http
             .post(&url)
             .query(&query.to_query_params())
-            .json(&body)
-            .send()
-            .await?;
+            .json(&body);
+
+        if let Some(uf) = unique_files {
+            req = req.query(&[("unique_files", uf.to_string())]);
+        }
+
+        let resp = req.send().await?;
 
         self.parse_response(Method::POST, path, resp).await
     }

@@ -68,7 +68,16 @@ pub enum MainTaskSimplifiedState {
 
 /// Page size for report searches — restricted to 5, 10, or 20.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(try_from = "i64")]
 pub struct PageSize(i64);
+
+impl TryFrom<i64> for PageSize {
+    type Error = String;
+
+    fn try_from(n: i64) -> Result<Self, Self::Error> {
+        Self::from_i64(n)
+    }
+}
 
 impl PageSize {
     pub const SIZE_5: Self = PageSize(5);
