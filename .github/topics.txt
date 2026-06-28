@@ -1,0 +1,10 @@
+filescan-mcp
+mcp
+model-context-protocol
+rust
+filescan
+file-scanning
+threat-intelligence
+url-scanner
+malware-analysis
+rmcp
