@@ -800,24 +800,22 @@ fn validate_similar_reports_input(input: &GetSimilarReportsInput) -> Result<(), 
 /// 0..=100 if present, hash not empty, tags validated.
 fn validate_similarity_search_input(input: &SimilaritySearchInput) -> Result<(), ErrorData> {
     // min_similarity bounds
-    if let Some(ms) = input.min_similarity {
-        if !(0..=100).contains(&ms) {
+    if let Some(ms) = input.min_similarity
+        && !(0..=100).contains(&ms) {
             return Err(ErrorData::internal_error(
                 "Validation error: min_similarity must be between 0 and 100",
                 None,
             ));
         }
-    }
 
     // hash non-empty if provided
-    if let Some(ref h) = input.hash {
-        if h.trim().is_empty() {
+    if let Some(ref h) = input.hash
+        && h.trim().is_empty() {
             return Err(ErrorData::internal_error(
                 "Validation error: hash must not be empty",
                 None,
             ));
         }
-    }
 
     // tags validated if present
     if let Some(ref tags) = input.tags {

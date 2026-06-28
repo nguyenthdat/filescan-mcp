@@ -1,7 +1,7 @@
 [package]
 name = "filescan-mcp"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "MCP server for Filescan.io — scan files/URLs, search reports, and query threat intelligence"
 license = "MIT"
 repository = "https://github.com/datnguyen/filescan-mcp"
