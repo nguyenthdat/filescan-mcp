@@ -1,0 +1,127 @@
+use filescan_mcp::config::FilescanConfig;
+use filescan_mcp::models::*;
+use filescan_mcp::query::*;
+
+#[test]
+fn page_size_from_i64_valid() {
+    assert!(PageSize::from_i64(5).is_ok());
+    assert!(PageSize::from_i64(10).is_ok());
+    assert!(PageSize::from_i64(20).is_ok());
+}
+
+#[test]
+fn page_size_from_i64_invalid() {
+    assert!(PageSize::from_i64(0).is_err());
+    assert!(PageSize::from_i64(15).is_err());
+    assert!(PageSize::from_i64(100).is_err());
+}
+
+#[test]
+fn scan_priority_response_handles_typo() {
+    let json = r#"{"applied": 100, "max_posibble": 200}"#;
+    let p: ScanPriorityResponse = serde_json::from_str(json).unwrap();
+    assert_eq!(p.max_possible, 200);
+    assert_eq!(p.applied, 100);
+
+    // Verify that without the typo field, deserialization fails
+    // since max_posibble is required
+    let json2 = r#"{"applied": 50}"#;
+    let p2 = serde_json::from_str::<ScanPriorityResponse>(json2);
+    assert!(p2.is_err());
+}
+
+#[test]
+fn all_upload_reports_response_parses_full() {
+    let json = r#"{
+        "flowId": "f123",
+        "allFinished": true,
+        "allFilesDownloadFinished": false,
+        "allAdditionalStepsDone": true,
+        "reportsAmount": 3,
+        "priority": "max",
+        "pollPause": 5,
+        "state": "finished",
+        "scanStartedDate": "2025-01-01",
+        "positionInQueue": 0,
+        "queueSize": 10,
+        "fileSize": 1024,
+        "fileReadProgressBytes": 1024,
+        "reports": {
+            "r1": {"overallState": "success"}
+        }
+    }"#;
+    let r: AllUploadRelatedReportsResponse = serde_json::from_str(json).unwrap();
+    assert_eq!(r.flow_id.unwrap(), "f123");
+    assert!(r.all_finished.unwrap());
+    assert_eq!(r.reports_amount.unwrap(), 3);
+    assert!(r.reports.is_object());
+}
+
+#[test]
+fn report_search_response_parses() {
+    let json = r#"{
+        "items": [{"id": 1}, {"id": 2}],
+        "count": 2,
+        "count_search_params": 100,
+        "earliest_dates_covered": true,
+        "method": "and",
+        "dbs_sync": true
+    }"#;
+    let r: ReportSearchResponse = serde_json::from_str(json).unwrap();
+    assert_eq!(r.items.len(), 2);
+    assert_eq!(r.count, 2);
+    assert_eq!(r.count_search_params.unwrap(), 100);
+    assert_eq!(r.method, "and");
+    assert!(r.dbs_sync.unwrap());
+}
+
+#[test]
+fn report_search_query_empty_to_params() {
+    let q = ReportSearchQuery::default();
+    assert!(q.to_query_params().is_empty());
+}
+
+#[test]
+fn report_search_query_full_to_params() {
+    let q = ReportSearchQuery {
+        verdict: Some("malicious".into()),
+        sha256: Some("abc123".into()),
+        page: Some(1),
+        page_size: Some(PageSize::SIZE_20),
+        method: Some(ReportSearchMethod::And),
+        derived_files: Some(true),
+        no_date_limit: Some(false),
+        ..Default::default()
+    };
+    let params = q.to_query_params();
+    assert!(params.contains(&("verdict".into(), "malicious".into())));
+    assert!(params.contains(&("sha256".into(), "abc123".into())));
+    assert!(params.contains(&("page".into(), "1".into())));
+    assert!(params.contains(&("page_size".into(), "20".into())));
+    assert!(params.contains(&("method".into(), "and".into())));
+}
+
+#[test]
+fn config_builder_with_custom_base_url() {
+    let c = FilescanConfig::builder()
+        .api_key("key1")
+        .base_url("https://custom.filescan.io/api")
+        .build()
+        .unwrap();
+    assert_eq!(c.base_url().as_str(), "https://custom.filescan.io/api");
+}
+
+#[test]
+fn scan_file_input_serializes_options() {
+    let input = ScanFileToolInput {
+        file_path: "/tmp/test.exe".into(),
+        options: Some(ScanOptions {
+            description: Some("test desc".into()),
+            scan_engine: Some(ScanEngine::Internal),
+            ..Default::default()
+        }),
+    };
+    let json = serde_json::to_string(&input).unwrap();
+    assert!(json.contains("test desc"));
+    assert!(json.contains("internal"));
+}

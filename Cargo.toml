@@ -1,0 +1,27 @@
+[package]
+name = "filescan-mcp"
+version = "0.1.0"
+edition = "2021"
+description = "MCP server for Filescan.io — scan files/URLs, search reports, and query threat intelligence"
+license = "MIT"
+repository = "https://github.com/datnguyen/filescan-mcp"
+
+[[bin]]
+name = "filescan-mcp"
+path = "src/main.rs"
+
+[dependencies]
+rmcp = { version = "1.8", features = ["server", "macros", "transport-io"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1"
+thiserror = "2"
+url = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+httpmock = "0.7"
+tokio-test = "0.4"
