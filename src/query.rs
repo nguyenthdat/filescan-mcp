@@ -1,4 +1,6 @@
-use crate::models::{MainTaskSimplifiedState, PageSize, ReportSearchMethod, ReportsSourceType};
+use crate::models::{
+    MainTaskSimplifiedState, PageSize, ReportSearchMethod, ReportVerdict, ReportsSourceType,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -250,6 +252,113 @@ impl ReportQuery {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Stage 3: Threat Intel & Similarity query models
+// ---------------------------------------------------------------------------
+
+/// Query parameters for `GET /api/threatintel/get-similars`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GetSimilarReportsQuery {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exclude_report_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imphash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssdeep: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fuzzyfsiohash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authentihash: Option<String>,
+    /// Age limit in days (-1 = no limit, default).
+    #[serde(default = "default_similar_days")]
+    pub days: i64,
+}
+
+fn default_similar_days() -> i64 {
+    -1
+}
+
+impl Default for GetSimilarReportsQuery {
+    fn default() -> Self {
+        Self {
+            exclude_report_ids: None,
+            imphash: None,
+            ssdeep: None,
+            fuzzyfsiohash: None,
+            authentihash: None,
+            days: -1,
+        }
+    }
+}
+
+impl GetSimilarReportsQuery {
+    /// Serialize to query parameter tuples using repeated keys for arrays.
+    pub fn to_query_params(&self) -> Vec<(String, String)> {
+        let mut params = Vec::new();
+        if let Some(ref ids) = self.exclude_report_ids {
+            for id in ids {
+                params.push(("exclude_report_ids".to_string(), id.clone()));
+            }
+        }
+        if let Some(ref v) = self.imphash {
+            params.push(("imphash".to_string(), v.clone()));
+        }
+        if let Some(ref v) = self.ssdeep {
+            params.push(("ssdeep".to_string(), v.clone()));
+        }
+        if let Some(ref v) = self.fuzzyfsiohash {
+            params.push(("fuzzyfsiohash".to_string(), v.clone()));
+        }
+        if let Some(ref v) = self.authentihash {
+            params.push(("authentihash".to_string(), v.clone()));
+        }
+        params.push(("days".to_string(), self.days.to_string()));
+        params
+    }
+}
+
+/// Query parameters for `GET /api/similarity-search/similarity` (deprecated endpoint).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct SimilaritySearchQuery {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_similarity: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<ReportVerdict>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+}
+
+impl SimilaritySearchQuery {
+    /// Serialize to query parameter tuples using repeated keys for `tags`.
+    pub fn to_query_params(&self) -> Vec<(String, String)> {
+        let mut params = Vec::new();
+        if let Some(ref v) = self.hash {
+            params.push(("hash".to_string(), v.clone()));
+        }
+        if let Some(v) = self.min_similarity {
+            params.push(("min_similarity".to_string(), v.to_string()));
+        }
+        if let Some(ref v) = self.verdict {
+            let verdict_str = serde_json::to_string(v).unwrap_or_default();
+            // serde_json wraps enums in quotes; strip them
+            let verdict_str = verdict_str.trim_matches('"');
+            params.push(("verdict".to_string(), verdict_str.to_string()));
+        }
+        if let Some(ref tags) = self.tags {
+            for tag in tags {
+                params.push(("tags".to_string(), tag.clone()));
+            }
+        }
+        params
+    }
+}
+
+// ---------------------------------------------------------------------------
+// tests
+// ---------------------------------------------------------------------------
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -303,5 +412,106 @@ mod tests {
         // Both entries use key "filter"
         let filter_count = params.iter().filter(|(k, _)| k == "filter").count();
         assert_eq!(filter_count, 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // Stage 3 query tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn get_similar_reports_query_empty() {
+        let q = GetSimilarReportsQuery::default();
+        let params = q.to_query_params();
+        // Only days appears when everything else is None
+        assert_eq!(params.len(), 1);
+        assert!(params.contains(&("days".into(), "-1".into())));
+    }
+
+    #[test]
+    fn get_similar_reports_query_with_hash_selectors() {
+        let q = GetSimilarReportsQuery {
+            imphash: Some("abc123".into()),
+            ssdeep: Some("48:xyz".into()),
+            days: 7,
+            ..Default::default()
+        };
+        let params = q.to_query_params();
+        assert!(params.contains(&("imphash".into(), "abc123".into())));
+        assert!(params.contains(&("ssdeep".into(), "48:xyz".into())));
+        assert!(params.contains(&("days".into(), "7".into())));
+    }
+
+    #[test]
+    fn get_similar_reports_query_repeated_exclude_ids() {
+        let q = GetSimilarReportsQuery {
+            exclude_report_ids: Some(vec!["id1".into(), "id2".into()]),
+            imphash: Some("abc".into()),
+            ..Default::default()
+        };
+        let params = q.to_query_params();
+        let exclude_count = params
+            .iter()
+            .filter(|(k, _)| k == "exclude_report_ids")
+            .count();
+        assert_eq!(exclude_count, 2);
+        assert!(params.contains(&("exclude_report_ids".into(), "id1".into())));
+        assert!(params.contains(&("exclude_report_ids".into(), "id2".into())));
+    }
+
+    #[test]
+    fn similarity_search_query_empty() {
+        let q = SimilaritySearchQuery::default();
+        let params = q.to_query_params();
+        assert!(params.is_empty());
+    }
+
+    #[test]
+    fn similarity_search_query_with_hash() {
+        let q = SimilaritySearchQuery {
+            hash: Some("abc123".into()),
+            ..Default::default()
+        };
+        let params = q.to_query_params();
+        assert_eq!(params.len(), 1);
+        assert!(params.contains(&("hash".into(), "abc123".into())));
+    }
+
+    #[test]
+    fn similarity_search_query_with_verdict() {
+        let q = SimilaritySearchQuery {
+            verdict: Some(ReportVerdict::Malicious),
+            ..Default::default()
+        };
+        let params = q.to_query_params();
+        assert!(params.contains(&("verdict".into(), "malicious".into())));
+    }
+
+    #[test]
+    fn similarity_search_query_with_repeated_tags() {
+        let q = SimilaritySearchQuery {
+            tags: Some(vec!["peexe".into(), "evasive".into()]),
+            ..Default::default()
+        };
+        let params = q.to_query_params();
+        let tag_count = params.iter().filter(|(k, _)| k == "tags").count();
+        assert_eq!(tag_count, 2);
+        assert!(params.contains(&("tags".into(), "peexe".into())));
+        assert!(params.contains(&("tags".into(), "evasive".into())));
+    }
+
+    #[test]
+    fn similarity_search_query_full() {
+        let q = SimilaritySearchQuery {
+            hash: Some("abc123".into()),
+            min_similarity: Some(50),
+            verdict: Some(ReportVerdict::Suspicious),
+            tags: Some(vec!["peexe".into()]),
+        };
+        let params = q.to_query_params();
+        assert!(params.contains(&("hash".into(), "abc123".into())));
+        assert!(params.contains(&("min_similarity".into(), "50".into())));
+        assert!(params.contains(&("verdict".into(), "suspicious".into())));
+        assert!(params.contains(&("tags".into(), "peexe".into())));
+        // min_similarity with 0 default would be absent unless explicitly set
     }
 }

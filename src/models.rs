@@ -412,6 +412,217 @@ pub struct MatchesResponseItem {
 }
 
 // ---------------------------------------------------------------------------
+// Stage 3: Threat Intel & Similarity models
+// ---------------------------------------------------------------------------
+
+/// File name and hash within a prevalence/similars report.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct IocPrevalenceReportFile {
+    pub name: String,
+    pub sha256: String,
+}
+
+/// Report item in a prevalence response.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct IocPrevalenceReport {
+    pub flow_id: String,
+    pub report_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<IocPrevalenceReportFile>,
+    pub verdict: ReportVerdict,
+    pub created_date: String,
+}
+
+/// Prevalence response for a single IOC value.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct IocsPrevalenceResponse {
+    /// Counts by verdict (keys are snake_case ReportVerdict values).
+    pub counts: HashMap<String, i64>,
+    pub reports: Vec<IocPrevalenceReport>,
+    pub verdict: ReportVerdict,
+}
+
+/// Type alias for the triple-nested prevalence/similars response map.
+pub type IocsPrevalenceMap = HashMap<String, HashMap<String, IocsPrevalenceResponse>>;
+
+/// Request body for `POST /api/threatintel/get-prevalence`.
+///
+/// `exclude_report_ids` is a **query** parameter, not part of this body.
+/// It is handled separately by the client method.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct IocsPrevalenceSearchParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ip: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uuid: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry_path: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision_save_id: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha1: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha512: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub md5: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imphash: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssdeep: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authentihash: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fuzzyfsiohash: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unc_path: Option<Vec<String>>,
+    /// Look-back window in days (1–30, default 30).
+    #[serde(default = "default_prevalence_days")]
+    pub days: i64,
+}
+
+fn default_prevalence_days() -> i64 {
+    30
+}
+
+impl Default for IocsPrevalenceSearchParams {
+    fn default() -> Self {
+        Self {
+            domain: None,
+            ip: None,
+            url: None,
+            uuid: None,
+            email: None,
+            registry_path: None,
+            revision_save_id: None,
+            sha1: None,
+            sha256: None,
+            sha512: None,
+            md5: None,
+            imphash: None,
+            ssdeep: None,
+            authentihash: None,
+            fuzzyfsiohash: None,
+            unc_path: None,
+            days: 30,
+        }
+    }
+}
+
+/// Breakdown of similarity scores by category.
+///
+/// All fields are optional — the API returns only a subset.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct SimilaritiesResultSimilarity {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extracted: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threat_indicators: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sections: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mitre_techniques: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub binary_metadata: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub certificates: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub characteristic: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disassembly_sections: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dotnet_info: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header_info: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imports: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pdb_guid: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resources: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rich_header_compiler_ids: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strings: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version_info: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apk: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub biffopcodes: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub emulation: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extendeddata: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub segments: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_parse: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_ocr: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub binary_internal: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strings_input_file: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub triggeredconsumerids: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vba_emulation: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub yara: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signal_ids: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub certifications: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weighted_numerics: Option<f64>,
+}
+
+/// File details for a similarity search result.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DetailsResultSimilarity {
+    pub start_date: String,
+    pub file_size: f64,
+    pub tags: Vec<String>,
+    pub verdict: ReportVerdict,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_dotnet: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub architecture: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entropy: Option<f64>,
+}
+
+/// One similarity entry within a similarity search response.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ResultSimilarity {
+    pub sha256: String,
+    pub overall_similarity: f64,
+    pub similarities: SimilaritiesResultSimilarity,
+    pub details: DetailsResultSimilarity,
+}
+
+/// Response for `GET /api/similarity-search/similarity`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct SimilaritiesResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub most_similar: Vec<ResultSimilarity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub most_recent: Vec<ResultSimilarity>,
+}
+
+// ---------------------------------------------------------------------------
 // serde tests
 // ---------------------------------------------------------------------------
 
@@ -683,5 +894,209 @@ mod tests {
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains(r#""mode":"bulk""#));
         assert!(json.contains(r#""results""#));
+    }
+
+    // -----------------------------------------------------------------------
+    // Stage 3 model serde tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ioc_prevalence_report_file_parses() {
+        let json = r#"{"name":"bad.exe","sha256":"abc123"}"#;
+        let f: IocPrevalenceReportFile = serde_json::from_str(json).unwrap();
+        assert_eq!(f.name, "bad.exe");
+        assert_eq!(f.sha256, "abc123");
+    }
+
+    #[test]
+    fn ioc_prevalence_report_parses_without_file() {
+        let json = r#"{
+            "flow_id":"f1",
+            "report_id":"r1",
+            "verdict":"malicious",
+            "created_date":"2025-01-31T12:28:49"
+        }"#;
+        let r: IocPrevalenceReport = serde_json::from_str(json).unwrap();
+        assert_eq!(r.flow_id, "f1");
+        assert!(r.file.is_none());
+        assert!(matches!(r.verdict, ReportVerdict::Malicious));
+    }
+
+    #[test]
+    fn ioc_prevalence_report_parses_with_file() {
+        let json = r#"{
+            "flow_id":"f2",
+            "report_id":"r2",
+            "file":{"name":"test.exe","sha256":"def456"},
+            "verdict":"no_threat",
+            "created_date":"2025-01-28T09:21:58"
+        }"#;
+        let r: IocPrevalenceReport = serde_json::from_str(json).unwrap();
+        let file = r.file.unwrap();
+        assert_eq!(file.name, "test.exe");
+        assert_eq!(file.sha256, "def456");
+    }
+
+    #[test]
+    fn iocs_prevalence_response_parses() {
+        let json = r#"{
+            "counts":{"malicious":2,"no_threat":1},
+            "reports":[
+                {"flow_id":"f1","report_id":"r1","verdict":"malicious","created_date":"2025-01-31"}
+            ],
+            "verdict":"malicious"
+        }"#;
+        let r: IocsPrevalenceResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(r.counts.get("malicious"), Some(&2));
+        assert_eq!(r.reports.len(), 1);
+    }
+
+    #[test]
+    fn iocs_prevalence_map_parses_triple_nested() {
+        let json = r#"{
+            "ip": {
+                "1.2.3.4": {
+                    "counts":{"malicious":1},
+                    "reports":[
+                        {"flow_id":"f1","report_id":"r1","verdict":"malicious","created_date":"2025-01-31"}
+                    ],
+                    "verdict":"malicious"
+                }
+            }
+        }"#;
+        let m: IocsPrevalenceMap = serde_json::from_str(json).unwrap();
+        assert_eq!(m.len(), 1);
+        let ip_map = m.get("ip").unwrap();
+        assert_eq!(ip_map.len(), 1);
+        let entry = ip_map.get("1.2.3.4").unwrap();
+        assert_eq!(entry.counts.get("malicious"), Some(&1));
+    }
+
+    #[test]
+    fn iocs_prevalence_search_params_serializes_with_default_days() {
+        let params = IocsPrevalenceSearchParams::default();
+        let json = serde_json::to_string(&params).unwrap();
+        assert!(json.contains(r#""days":30"#));
+    }
+
+    #[test]
+    fn iocs_prevalence_search_params_serializes_with_iocs() {
+        let params = IocsPrevalenceSearchParams {
+            sha256: Some(vec!["abc123".into()]),
+            ip: Some(vec!["1.2.3.4".into()]),
+            days: 7,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&params).unwrap();
+        assert!(json.contains(r#""sha256":["abc123"]"#));
+        assert!(json.contains(r#""ip":["1.2.3.4"]"#));
+        assert!(json.contains(r#""days":7"#));
+        // Empty/None fields should be omitted
+        assert!(!json.contains(r#""domain""#));
+    }
+
+    #[test]
+    fn similarities_result_similarity_parses_sparse() {
+        let json = r#"{"extracted":1.0,"strings":1.0,"version_info":1.0}"#;
+        let s: SimilaritiesResultSimilarity = serde_json::from_str(json).unwrap();
+        assert_eq!(s.extracted, Some(1.0));
+        assert_eq!(s.strings, Some(1.0));
+        assert_eq!(s.version_info, Some(1.0));
+        assert!(s.threat_indicators.is_none());
+        assert!(s.apk.is_none());
+    }
+
+    #[test]
+    fn similarities_result_similarity_parses_empty() {
+        let json = r#"{}"#;
+        let s: SimilaritiesResultSimilarity = serde_json::from_str(json).unwrap();
+        assert!(s.extracted.is_none());
+        assert!(s.strings.is_none());
+    }
+
+    #[test]
+    fn details_result_similarity_parses() {
+        let json = r#"{
+            "start_date":"2025-01-31T09:42:38",
+            "file_size":3590144.0,
+            "tags":["peexe","evasive"],
+            "verdict":"malicious",
+            "is_dotnet":0,
+            "architecture":"32 Bits binary",
+            "entropy":6.6975
+        }"#;
+        let d: DetailsResultSimilarity = serde_json::from_str(json).unwrap();
+        assert_eq!(d.start_date, "2025-01-31T09:42:38");
+        assert_eq!(d.file_size, 3590144.0);
+        assert_eq!(d.tags.len(), 2);
+        assert_eq!(d.is_dotnet, Some(0));
+        assert!(d.entropy.is_some());
+    }
+
+    #[test]
+    fn details_result_similarity_parses_minimal() {
+        let json = r#"{
+            "start_date":"2025-01-01",
+            "file_size":1024.0,
+            "tags":[],
+            "verdict":"unknown"
+        }"#;
+        let d: DetailsResultSimilarity = serde_json::from_str(json).unwrap();
+        assert!(d.is_dotnet.is_none());
+        assert!(d.architecture.is_none());
+        assert!(d.entropy.is_none());
+    }
+
+    #[test]
+    fn result_similarity_parses() {
+        let json = r#"{
+            "sha256":"abc123",
+            "overall_similarity":0.95,
+            "similarities":{"extracted":1.0},
+            "details":{
+                "start_date":"2025-01-01",
+                "file_size":1024.0,
+                "tags":[],
+                "verdict":"malicious"
+            }
+        }"#;
+        let r: ResultSimilarity = serde_json::from_str(json).unwrap();
+        assert_eq!(r.sha256, "abc123");
+        assert_eq!(r.overall_similarity, 0.95);
+        assert_eq!(r.similarities.extracted, Some(1.0));
+    }
+
+    #[test]
+    fn similarities_response_parses_full() {
+        let json = r#"{
+            "note":"demo data",
+            "most_similar":[
+                {
+                    "sha256":"abc123",
+                    "overall_similarity":1.0,
+                    "similarities":{},
+                    "details":{
+                        "start_date":"2025-01-01",
+                        "file_size":1024.0,
+                        "tags":[],
+                        "verdict":"malicious"
+                    }
+                }
+            ],
+            "most_recent":[]
+        }"#;
+        let r: SimilaritiesResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(r.note.unwrap(), "demo data");
+        assert_eq!(r.most_similar.len(), 1);
+        assert!(r.most_recent.is_empty());
+    }
+
+    #[test]
+    fn similarities_response_parses_empty_arrays_and_missing_note() {
+        let json = r#"{}"#;
+        let r: SimilaritiesResponse = serde_json::from_str(json).unwrap();
+        assert!(r.note.is_none());
+        assert!(r.most_similar.is_empty());
+        assert!(r.most_recent.is_empty());
     }
 }

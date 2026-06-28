@@ -368,6 +368,68 @@ impl FilescanClient {
     }
 
     // -------------------------------------------------------------------
+    // Stage 3: POST /api/threatintel/get-prevalence
+    // -------------------------------------------------------------------
+    pub async fn get_ioc_prevalence(
+        &self,
+        body: &IocsPrevalenceSearchParams,
+        exclude_report_ids: &[String],
+    ) -> Result<IocsPrevalenceMap, FilescanError> {
+        let path = "/api/threatintel/get-prevalence";
+        let url = self.url(path);
+
+        let mut req = self.http.post(&url).json(body);
+
+        // exclude_report_ids is a query parameter, not in the JSON body
+        let query_tuples: Vec<(String, String)> = exclude_report_ids
+            .iter()
+            .map(|id| ("exclude_report_ids".to_string(), id.clone()))
+            .collect();
+        if !query_tuples.is_empty() {
+            req = req.query(&query_tuples);
+        }
+
+        let resp = req.send().await?;
+        self.parse_response(Method::POST, path, resp).await
+    }
+
+    // -------------------------------------------------------------------
+    // Stage 3: GET /api/threatintel/get-similars
+    // -------------------------------------------------------------------
+    pub async fn get_similar_reports(
+        &self,
+        query: &GetSimilarReportsQuery,
+    ) -> Result<IocsPrevalenceMap, FilescanError> {
+        let path = "/api/threatintel/get-similars";
+        let url = self.url(path);
+        let resp = self
+            .http
+            .get(&url)
+            .query(&query.to_query_params())
+            .send()
+            .await?;
+        self.parse_response(Method::GET, path, resp).await
+    }
+
+    // -------------------------------------------------------------------
+    // Stage 3: GET /api/similarity-search/similarity (deprecated)
+    // -------------------------------------------------------------------
+    pub async fn similarity_search(
+        &self,
+        query: &SimilaritySearchQuery,
+    ) -> Result<SimilaritiesResponse, FilescanError> {
+        let path = "/api/similarity-search/similarity";
+        let url = self.url(path);
+        let resp = self
+            .http
+            .get(&url)
+            .query(&query.to_query_params())
+            .send()
+            .await?;
+        self.parse_response(Method::GET, path, resp).await
+    }
+
+    // -------------------------------------------------------------------
     // Response mapping
     // -------------------------------------------------------------------
 

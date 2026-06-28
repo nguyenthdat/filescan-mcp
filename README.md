@@ -16,6 +16,9 @@ A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server written
 | `filescan_check_file_availability` | `POST /api/files/availability` | Check if file hashes are available in Filescan |
 | `filescan_get_hash_reputation` | `GET/POST /api/reputation/hash` | Look up reputation for SHA256 hashes (single or bulk) |
 | `filescan_get_ioc_reputation` | `GET/POST /api/reputation/{ioc_type}` | Look up reputation for IOCs — domain/ip/url (single or bulk) |
+| `filescan_get_ioc_prevalence` | `POST /api/threatintel/get-prevalence` | Get IOC prevalence statistics across reports |
+| `filescan_get_similar_reports` | `GET /api/threatintel/get-similars` | Find reports with same special hashes |
+| `filescan_similarity_search` | `GET /api/similarity-search/similarity` | **[DEPRECATED]** Find similar reports by SHA256, tags, threshold, verdict |
 
 ### Stage 2 Tool Notes
 
@@ -23,6 +26,14 @@ A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server written
 - `filescan_get_ioc_reputation`: Provide exactly one of `ioc_value` (single → GET) or `ioc_values` (bulk → POST, 1–100 items). `ioc_type` must be `domain`, `ip`, or `url`.
 - Bulk lookups are capped at 100 items for safety; this is an MCP convention, not an API limit.
 - Reputation results use tagged output: `{ "mode": "single", "result": {...} }` or `{ "mode": "bulk", "results": [...] }`.
+
+### Stage 3 Tool Notes
+
+- `filescan_get_ioc_prevalence`: Requires at least one IOC array populated (16 IOC types supported). `days` must be 1–30 (default 30). `exclude_report_ids` is a query parameter (not JSON body).
+- `filescan_get_similar_reports`: Requires at least one of `imphash`, `ssdeep`, `fuzzyfsiohash`, or `authentihash`. `days = -1` means no time limit. Response includes file name and SHA256 per report.
+- `filescan_similarity_search`: **Deprecated** by the Filescan OpenAPI spec — exposed because requested. `min_similarity` is 0–100. Requires at least one selector (`hash`, `tags`, `verdict`, or `min_similarity`). Returns top 10 most similar and top 10 most recent findings.
+- All Stage 3 tools are read-only.
+- List caps: all IOC arrays, `exclude_report_ids`, and `tags` are limited to 100 items.
 
 ## Setup
 
@@ -87,6 +98,10 @@ cargo clippy --all-targets -- -D warnings
 - Typed `ScanResponse`, `ScanPriorityResponse`, `AllUploadRelatedReportsResponse`, `ReportSearchResponse`, `MatchesResponseItem` models.
 - Stage 2 models: `ReputationResultHash`, `ReputationResultIoc`, `FuzzyhashVerdict`, `ResultMultiscan`, `ResultLookup`, `ReportForReputationCalculation`, `FileAvailabilityResponse`.
 - Tagged response wrappers (`HashReputationResponse`, `IocReputationResponse`) for stable single-vs-bulk output.
+- Stage 3 tools: `filescan_get_ioc_prevalence`, `filescan_get_similar_reports`, `filescan_similarity_search` — all 3 implemented with typed models, validation, and contract tests.
+- `IocsPrevalenceMap` triple-nested response deserialization for prevalence and similars endpoints.
+- `SimilaritiesResponse`, `SimilaritiesResultSimilarity` (32 optional category scores), `DetailsResultSimilarity`, `ResultSimilarity` models.
+- Stage 3 input validation: days bounds, at-least-one selector enforcement, list caps, empty-string rejection.
 - All 39 report search query parameters supported.
 - `ReportSearchQuery` shared between search and matches endpoints.
 - Multipart file upload with local file path validation.
@@ -99,7 +114,6 @@ cargo clippy --all-targets -- -D warnings
 
 ### Intentionally Deferred
 
-- Stage 3 tools: `filescan_get_ioc_prevalence`, `filescan_get_similar_reports`, `filescan_similarity_search`.
 - Stage 4 metadata tools: `filescan_system_info`, `filescan_system_version`, `filescan_system_config`, etc.
 - Admin/mutation endpoints (news create/delete).
 - UI endpoints (logo, translations, languages, countries, etc.).

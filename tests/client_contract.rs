@@ -621,3 +621,296 @@ async fn availability_returns_422() {
     assert!(msg.contains("422"));
     assert!(msg.contains("Invalid hash format"));
 }
+
+// ---------------------------------------------------------------------------
+// Stage 3: Threat Intel & Similarity contract tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn get_ioc_prevalence_success() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(POST)
+            .path("/api/threatintel/get-prevalence")
+            .header("X-Api-Key", "test-mock-key")
+            .json_body_partial(r#"{"sha256":["abc123"]}"#)
+            .json_body_partial(r#"{"days":7}"#)
+            .query_param("exclude_report_ids", "rid1")
+            .query_param("exclude_report_ids", "rid2");
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(
+                r#"{
+                    "sha256": {
+                        "abc123": {
+                            "counts": {"malicious": 2},
+                            "reports": [
+                                {"flow_id":"f1","report_id":"r1","verdict":"malicious","created_date":"2025-01-31"}
+                            ],
+                            "verdict": "malicious"
+                        }
+                    }
+                }"#,
+            );
+    });
+
+    let client = mock_client(&server);
+    let body = IocsPrevalenceSearchParams {
+        sha256: Some(vec!["abc123".into()]),
+        days: 7,
+        ..Default::default()
+    };
+    let exclude = vec!["rid1".to_string(), "rid2".to_string()];
+    let result = client.get_ioc_prevalence(&body, &exclude).await.unwrap();
+    mock.assert();
+
+    assert_eq!(result.len(), 1);
+    assert!(result.contains_key("sha256"));
+}
+
+#[tokio::test]
+async fn get_ioc_prevalence_no_exclude_ids() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(POST)
+            .path("/api/threatintel/get-prevalence")
+            .json_body_partial(r#"{"ip":["1.2.3.4"]}"#);
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(r#"{}"#);
+    });
+
+    let client = mock_client(&server);
+    let body = IocsPrevalenceSearchParams {
+        ip: Some(vec!["1.2.3.4".into()]),
+        ..Default::default()
+    };
+    let result = client.get_ioc_prevalence(&body, &[]).await.unwrap();
+    mock.assert();
+    assert!(result.is_empty());
+}
+
+#[tokio::test]
+async fn get_ioc_prevalence_sends_16_ioc_fields() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(POST)
+            .path("/api/threatintel/get-prevalence")
+            .json_body_partial(r#"{"domain":["example.com"]}"#)
+            .json_body_partial(r#"{"url":["https://example.com"]}"#)
+            .json_body_partial(r#"{"email":["user@example.com"]}"#);
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(r#"{}"#);
+    });
+
+    let client = mock_client(&server);
+    let body = IocsPrevalenceSearchParams {
+        domain: Some(vec!["example.com".into()]),
+        url: Some(vec!["https://example.com".into()]),
+        email: Some(vec!["user@example.com".into()]),
+        ..Default::default()
+    };
+    client.get_ioc_prevalence(&body, &[]).await.unwrap();
+    mock.assert();
+}
+
+#[tokio::test]
+async fn get_similar_reports_success() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/api/threatintel/get-similars")
+            .query_param("imphash", "abc123")
+            .query_param("days", "7")
+            .query_param("exclude_report_ids", "rid1")
+            .query_param("exclude_report_ids", "rid2");
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(
+                r#"{
+                    "imphash": {
+                        "abc123": {
+                            "counts": {"malicious": 1},
+                            "reports": [
+                                {
+                                    "flow_id": "f1",
+                                    "report_id": "r1",
+                                    "file": {"name": "test.exe", "sha256": "def456"},
+                                    "verdict": "malicious",
+                                    "created_date": "2025-01-31"
+                                }
+                            ],
+                            "verdict": "malicious"
+                        }
+                    }
+                }"#,
+            );
+    });
+
+    let client = mock_client(&server);
+    let query = GetSimilarReportsQuery {
+        imphash: Some("abc123".into()),
+        days: 7,
+        exclude_report_ids: Some(vec!["rid1".into(), "rid2".into()]),
+        ..Default::default()
+    };
+    let result = client.get_similar_reports(&query).await.unwrap();
+    mock.assert();
+
+    assert!(result.contains_key("imphash"));
+    let reports = &result
+        .get("imphash")
+        .unwrap()
+        .get("abc123")
+        .unwrap()
+        .reports;
+    assert_eq!(reports.len(), 1);
+    assert!(reports[0].file.is_some());
+    assert_eq!(reports[0].file.as_ref().unwrap().name, "test.exe");
+}
+
+#[tokio::test]
+async fn get_similar_reports_with_fuzzyfsiohash() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/api/threatintel/get-similars")
+            .query_param("fuzzyfsiohash", "hash123")
+            .query_param("ssdeep", "48:xyz");
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(r#"{}"#);
+    });
+
+    let client = mock_client(&server);
+    let query = GetSimilarReportsQuery {
+        fuzzyfsiohash: Some("hash123".into()),
+        ssdeep: Some("48:xyz".into()),
+        days: -1,
+        ..Default::default()
+    };
+    client.get_similar_reports(&query).await.unwrap();
+    mock.assert();
+}
+
+#[tokio::test]
+async fn similarity_search_success() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/api/similarity-search/similarity")
+            .header("X-Api-Key", "test-mock-key")
+            .query_param("hash", "abc123")
+            .query_param("min_similarity", "50")
+            .query_param("verdict", "malicious")
+            .query_param("tags", "peexe")
+            .query_param("tags", "evasive");
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(
+                r#"{
+                    "note": "demo data",
+                    "most_similar": [
+                        {
+                            "sha256": "abc123",
+                            "overall_similarity": 1.0,
+                            "similarities": {"extracted": 1.0, "strings": 1.0},
+                            "details": {
+                                "start_date": "2025-01-31",
+                                "file_size": 1024.0,
+                                "tags": ["peexe"],
+                                "verdict": "malicious"
+                            }
+                        }
+                    ],
+                    "most_recent": []
+                }"#,
+            );
+    });
+
+    let client = mock_client(&server);
+    let query = SimilaritySearchQuery {
+        hash: Some("abc123".into()),
+        min_similarity: Some(50),
+        verdict: Some(ReportVerdict::Malicious),
+        tags: Some(vec!["peexe".into(), "evasive".into()]),
+    };
+    let result = client.similarity_search(&query).await.unwrap();
+    mock.assert();
+
+    assert_eq!(result.note.unwrap(), "demo data");
+    assert_eq!(result.most_similar.len(), 1);
+    assert_eq!(result.most_similar[0].sha256, "abc123");
+    assert!(result.most_recent.is_empty());
+}
+
+#[tokio::test]
+async fn similarity_search_minimal() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/api/similarity-search/similarity")
+            .query_param("hash", "abc123");
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(r#"{"most_similar":[],"most_recent":[]}"#);
+    });
+
+    let client = mock_client(&server);
+    let query = SimilaritySearchQuery {
+        hash: Some("abc123".into()),
+        ..Default::default()
+    };
+    let result = client.similarity_search(&query).await.unwrap();
+    mock.assert();
+
+    assert!(result.note.is_none());
+    assert!(result.most_similar.is_empty());
+}
+
+#[tokio::test]
+async fn prevalence_returns_422() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(POST).path("/api/threatintel/get-prevalence");
+        then.status(422).body(
+            r#"{"detail":[{"loc":["body","days"],"msg":"ensure this value is greater than 0","type":"value_error"}]}"#,
+        );
+    });
+
+    let client = mock_client(&server);
+    let body = IocsPrevalenceSearchParams {
+        days: 0,
+        ..Default::default()
+    };
+    let err = client.get_ioc_prevalence(&body, &[]).await.unwrap_err();
+    mock.assert();
+
+    let msg = err.mcp_message();
+    assert!(msg.contains("422"));
+    assert!(msg.contains("greater than 0"));
+}
+
+#[tokio::test]
+async fn similarity_search_401() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(GET).path("/api/similarity-search/similarity");
+        then.status(401)
+            .header("content-type", "application/json")
+            .body(r#"{"detail":"Not authorized"}"#);
+    });
+
+    let client = mock_client(&server);
+    let query = SimilaritySearchQuery {
+        hash: Some("abc".into()),
+        ..Default::default()
+    };
+    let err = client.similarity_search(&query).await.unwrap_err();
+    mock.assert();
+
+    let msg = err.mcp_message();
+    assert!(msg.contains("401"));
+    assert!(msg.contains("FILESCAN_API_KEY"));
+}
