@@ -36,7 +36,7 @@ async fn scan_url_success() {
     mock.assert();
 
     assert_eq!(result.flow_id, "flow-123");
-    assert_eq!(result.priority.max_possible, 100);
+    assert_eq!(result.priority.max_possible, Some(100));
 }
 
 #[tokio::test]
@@ -147,7 +147,7 @@ async fn scan_file_sends_propagate_tags() {
             .body_contains("propagate_tags");
         then.status(200)
             .header("content-type", "application/json")
-            .body(r#"{"flow_id":"flow-propagate","priority":{"applied":100,"max_posibble":100}}"#);
+            .body(r#"{"flow_id":"flow-propagate","priority":{"applied":100}}"#);
     });
 
     let client = mock_client(&server);
@@ -162,6 +162,7 @@ async fn scan_file_sends_propagate_tags() {
         .unwrap();
     mock.assert();
     assert_eq!(result.flow_id, "flow-propagate");
+    assert_eq!(result.priority.max_possible, None);
 
     // Cleanup
     let _ = std::fs::remove_file(&file_path);

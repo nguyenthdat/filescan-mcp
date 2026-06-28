@@ -175,9 +175,13 @@ pub struct ScanPriorityResponse {
     pub applied: i64,
     /// Note: OpenAPI schema uses the misspelled `max_posibble`.
     /// API examples suggest both `max_possible` and `max_posibble` may appear.
-    #[serde(rename = "max_posibble")]
+    #[serde(
+        rename = "max_posibble",
+        alias = "max_possible",
+        skip_serializing_if = "Option::is_none"
+    )]
     #[schemars(rename = "max_possible")]
-    pub max_possible: i64,
+    pub max_possible: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 }
@@ -291,7 +295,22 @@ mod tests {
     fn scan_response_accepts_max_posibble() {
         let json = r#"{"flow_id":"abc123","priority":{"applied":100,"max_posibble":100}}"#;
         let resp: ScanResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.priority.max_possible, 100);
+        assert_eq!(resp.priority.max_possible, Some(100));
+    }
+
+    #[test]
+    fn scan_response_accepts_max_possible_alias() {
+        let json = r#"{"flow_id":"abc123","priority":{"applied":100,"max_possible":100}}"#;
+        let resp: ScanResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.priority.max_possible, Some(100));
+    }
+
+    #[test]
+    fn scan_response_accepts_missing_priority_limit() {
+        let json = r#"{"flow_id":"abc123","priority":{"applied":100}}"#;
+        let resp: ScanResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.priority.applied, 100);
+        assert_eq!(resp.priority.max_possible, None);
     }
 
     #[test]

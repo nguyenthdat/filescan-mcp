@@ -44,14 +44,16 @@ fn page_size_deserialize_invalid_rejected() {
 fn scan_priority_response_handles_typo() {
     let json = r#"{"applied": 100, "max_posibble": 200}"#;
     let p: ScanPriorityResponse = serde_json::from_str(json).unwrap();
-    assert_eq!(p.max_possible, 200);
+    assert_eq!(p.max_possible, Some(200));
     assert_eq!(p.applied, 100);
 
-    // Verify that without the typo field, deserialization fails
-    // since max_posibble is required
+    let json_alias = r#"{"applied": 50, "max_possible": 100}"#;
+    let p_alias: ScanPriorityResponse = serde_json::from_str(json_alias).unwrap();
+    assert_eq!(p_alias.max_possible, Some(100));
+
     let json2 = r#"{"applied": 50}"#;
-    let p2 = serde_json::from_str::<ScanPriorityResponse>(json2);
-    assert!(p2.is_err());
+    let p2 = serde_json::from_str::<ScanPriorityResponse>(json2).unwrap();
+    assert_eq!(p2.max_possible, None);
 }
 
 #[test]
