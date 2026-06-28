@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -64,6 +66,26 @@ pub enum MainTaskSimplifiedState {
     Failed,
     #[serde(rename = "in_progress")]
     InProgress,
+}
+
+/// Reputation IOC type for path routing – `domain`, `ip`, or `url`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReputationIocType {
+    Domain,
+    Ip,
+    Url,
+}
+
+impl ReputationIocType {
+    /// Return the snake_case string used in API path segments.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ReputationIocType::Domain => "domain",
+            ReputationIocType::Ip => "ip",
+            ReputationIocType::Url => "url",
+        }
+    }
 }
 
 /// Page size for report searches — restricted to 5, 10, or 20.
@@ -248,6 +270,112 @@ pub struct ReportSearchResponse {
     pub dbs_sync: Option<bool>,
 }
 
+// ---------------------------------------------------------------------------
+// Stage 2: Availability & Reputation models
+// ---------------------------------------------------------------------------
+
+/// Response body for `POST /api/files/availability` — a dynamic map of
+/// SHA256 hash → availability boolean.
+///
+/// Serializes as a flat JSON object: `{"hash1": true, "hash2": false}`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct FileAvailabilityResponse {
+    #[serde(flatten)]
+    pub available: HashMap<String, bool>,
+}
+
+/// Fuzzy hash verdict used in hash reputation.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct FuzzyhashVerdict {
+    pub hash: Option<String>,
+    pub verdict: ReportVerdict,
+}
+
+/// Multi-AV scan result for **hash** reputation (`ResultMultiscan`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ResultMultiscan {
+    pub total_av_engines: i64,
+    pub detected_av_engines: i64,
+    pub scan_time: String,
+}
+
+/// MDCloud lookup result for **IOC** reputation (`ResultLookup`).
+/// Distinct from `ResultMultiscan` — has only `detected`, no `total_av_engines`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ResultLookup {
+    pub scan_time: String,
+    pub detected: i64,
+}
+
+/// A report summary used in reputation calculations.
+///
+/// `report_date` is a plain string (not a date-time) because the API
+/// examples use the non-standard `MM/DD/YYYY, HH:MM:SS` format.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ReportForReputationCalculation {
+    pub verdict: ReportVerdict,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report_date: Option<String>,
+    pub report_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_id: Option<String>,
+}
+
+/// Hash reputation result from `GET /api/reputation/hash` or
+/// `POST /api/reputation/hash` (bulk).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ReputationResultHash {
+    pub sha256: String,
+    pub overall_verdict: ReportVerdict,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fuzzyhash: Option<FuzzyhashVerdict>,
+    /// `ResultMultiscan` for hash-based reputation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mdcloud: Option<ResultMultiscan>,
+    pub filescan_reports: Vec<ReportForReputationCalculation>,
+}
+
+/// IOC reputation result from `GET /api/reputation/{ioc_type}` or
+/// `POST /api/reputation/{ioc_type}` (bulk).
+///
+/// The `ioc_type` field is a plain string in API responses (not the enum),
+/// matching the OpenAPI schema.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ReputationResultIoc {
+    pub ioc_type: String,
+    pub ioc_value: String,
+    pub overall_verdict: ReportVerdict,
+    /// `ResultLookup` for IOC-based reputation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mdcloud: Option<ResultLookup>,
+    pub filescan_reports: Vec<ReportForReputationCalculation>,
+}
+
+// ---------------------------------------------------------------------------
+// Tagged MCP tool response wrappers for stable single-vs-bulk output
+// ---------------------------------------------------------------------------
+
+/// Wraps hash reputation output so MCP tools always return a tagged
+/// `{ "mode": "single", "result": {...} }` or `{ "mode": "bulk", "results": [...] }`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "mode")]
+pub enum HashReputationResponse {
+    #[serde(rename = "single")]
+    Single { result: ReputationResultHash },
+    #[serde(rename = "bulk")]
+    Bulk { results: Vec<ReputationResultHash> },
+}
+
+/// Wraps IOC reputation output with the same tagged shape.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "mode")]
+pub enum IocReputationResponse {
+    #[serde(rename = "single")]
+    Single { result: ReputationResultIoc },
+    #[serde(rename = "bulk")]
+    Bulk { results: Vec<ReputationResultIoc> },
+}
+
 /// Body for `POST /api/reports/search/matches`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[schemars(description = "Request body: list of report IDs to fetch matches for")]
@@ -365,5 +493,195 @@ mod tests {
         let input: ScanFileToolInput = serde_json::from_str(json).unwrap();
         assert_eq!(input.file_path, "/tmp/test.exe");
         assert_eq!(input.options.unwrap().description.unwrap(), "test");
+    }
+
+    // -----------------------------------------------------------------------
+    // Stage 2 model serde tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn reputation_ioc_type_serializes_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&ReputationIocType::Domain).unwrap(),
+            r#""domain""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ReputationIocType::Ip).unwrap(),
+            r#""ip""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ReputationIocType::Url).unwrap(),
+            r#""url""#
+        );
+    }
+
+    #[test]
+    fn reputation_ioc_type_deserializes() {
+        let d: ReputationIocType = serde_json::from_str(r#""domain""#).unwrap();
+        assert!(matches!(d, ReputationIocType::Domain));
+        let i: ReputationIocType = serde_json::from_str(r#""ip""#).unwrap();
+        assert!(matches!(i, ReputationIocType::Ip));
+        let u: ReputationIocType = serde_json::from_str(r#""url""#).unwrap();
+        assert!(matches!(u, ReputationIocType::Url));
+    }
+
+    #[test]
+    fn reputation_ioc_type_as_str() {
+        assert_eq!(ReputationIocType::Domain.as_str(), "domain");
+        assert_eq!(ReputationIocType::Ip.as_str(), "ip");
+        assert_eq!(ReputationIocType::Url.as_str(), "url");
+    }
+
+    #[test]
+    fn file_availability_response_parses() {
+        let json = r#"{"abc123":true,"def456":false}"#;
+        let r: FileAvailabilityResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(r.available.len(), 2);
+        assert_eq!(r.available.get("abc123"), Some(&true));
+        assert_eq!(r.available.get("def456"), Some(&false));
+    }
+
+    #[test]
+    fn file_availability_response_empty() {
+        let json = r#"{}"#;
+        let r: FileAvailabilityResponse = serde_json::from_str(json).unwrap();
+        assert!(r.available.is_empty());
+    }
+
+    #[test]
+    fn fuzzyhash_verdict_parses_with_hash() {
+        let json = r#"{"hash":"abc123","verdict":"malicious"}"#;
+        let f: FuzzyhashVerdict = serde_json::from_str(json).unwrap();
+        assert_eq!(f.hash.unwrap(), "abc123");
+        assert!(matches!(f.verdict, ReportVerdict::Malicious));
+    }
+
+    #[test]
+    fn fuzzyhash_verdict_parses_without_hash() {
+        let json = r#"{"verdict":"unknown"}"#;
+        let f: FuzzyhashVerdict = serde_json::from_str(json).unwrap();
+        assert!(f.hash.is_none());
+    }
+
+    #[test]
+    fn result_multiscan_parses() {
+        let json = r#"{"total_av_engines":19,"detected_av_engines":3,"scan_time":"2024-09-27T15:44:17.884000"}"#;
+        let r: ResultMultiscan = serde_json::from_str(json).unwrap();
+        assert_eq!(r.total_av_engines, 19);
+        assert_eq!(r.detected_av_engines, 3);
+    }
+
+    #[test]
+    fn result_lookup_parses() {
+        let json = r#"{"scan_time":"2025-02-10T13:29:04.035000","detected":0}"#;
+        let r: ResultLookup = serde_json::from_str(json).unwrap();
+        assert_eq!(r.detected, 0);
+    }
+
+    #[test]
+    fn report_for_reputation_calculation_parses() {
+        let json = r#"{"verdict":"malicious","report_date":"01/28/2025, 10:24:45","report_id":"d2e899de","flow_id":"6798b06a"}"#;
+        let r: ReportForReputationCalculation = serde_json::from_str(json).unwrap();
+        assert_eq!(r.report_id, "d2e899de");
+        assert_eq!(r.report_date.unwrap(), "01/28/2025, 10:24:45");
+        assert_eq!(r.flow_id.unwrap(), "6798b06a");
+        assert!(matches!(r.verdict, ReportVerdict::Malicious));
+    }
+
+    #[test]
+    fn report_for_reputation_missing_optionals() {
+        let json = r#"{"verdict":"benign","report_id":"r1"}"#;
+        let r: ReportForReputationCalculation = serde_json::from_str(json).unwrap();
+        assert!(r.report_date.is_none());
+        assert!(r.flow_id.is_none());
+    }
+
+    #[test]
+    fn reputation_result_hash_parses_full() {
+        let json = r#"{
+            "sha256":"cd75828da7199ec27875ebb93c9bb848fe5c58baea4de185af37dc3731cb9ffc",
+            "overall_verdict":"malicious",
+            "fuzzyhash":{"hash":"dfccbab156d3685c12ce4c9250850ef20b09f4f9c16a343cbee8b7314ea314a0","verdict":"unknown"},
+            "mdcloud":{"total_av_engines":19,"detected_av_engines":0,"scan_time":"2023-02-01T19:01:17.707000"},
+            "filescan_reports":[{"verdict":"malicious","report_date":"01/28/2025, 10:24:45","report_id":"d2e899de","flow_id":"6798b06a"}]
+        }"#;
+        let r: ReputationResultHash = serde_json::from_str(json).unwrap();
+        assert_eq!(r.sha256.len(), 64);
+        assert!(r.mdcloud.is_some());
+        assert_eq!(r.filescan_reports.len(), 1);
+    }
+
+    #[test]
+    fn reputation_result_hash_parses_minimal() {
+        let json = r#"{
+            "sha256":"ab12",
+            "overall_verdict":"unknown",
+            "filescan_reports":[]
+        }"#;
+        let r: ReputationResultHash = serde_json::from_str(json).unwrap();
+        assert!(r.fuzzyhash.is_none());
+        assert!(r.mdcloud.is_none());
+        assert!(r.filescan_reports.is_empty());
+    }
+
+    #[test]
+    fn reputation_result_ioc_parses() {
+        let json = r#"{
+            "ioc_type":"url",
+            "ioc_value":"https://netflix.com",
+            "overall_verdict":"malicious",
+            "mdcloud":{"scan_time":"2025-02-10T13:29:04.035000","detected":0},
+            "filescan_reports":[{"verdict":"malicious","report_date":"01/28/2025, 10:24:45","report_id":"r1"}]
+        }"#;
+        let r: ReputationResultIoc = serde_json::from_str(json).unwrap();
+        assert_eq!(r.ioc_type, "url");
+        assert_eq!(r.ioc_value, "https://netflix.com");
+        assert!(r.mdcloud.is_some());
+    }
+
+    #[test]
+    fn hash_reputation_response_single_tagged() {
+        let inner = ReputationResultHash {
+            sha256: "abc".into(),
+            overall_verdict: ReportVerdict::Benign,
+            fuzzyhash: None,
+            mdcloud: None,
+            filescan_reports: vec![],
+        };
+        let resp = HashReputationResponse::Single { result: inner };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains(r#""mode":"single""#));
+        assert!(json.contains(r#""result""#));
+    }
+
+    #[test]
+    fn hash_reputation_response_bulk_tagged() {
+        let resp = HashReputationResponse::Bulk { results: vec![] };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains(r#""mode":"bulk""#));
+        assert!(json.contains(r#""results""#));
+    }
+
+    #[test]
+    fn ioc_reputation_response_single_tagged() {
+        let inner = ReputationResultIoc {
+            ioc_type: "domain".into(),
+            ioc_value: "example.com".into(),
+            overall_verdict: ReportVerdict::Unknown,
+            mdcloud: None,
+            filescan_reports: vec![],
+        };
+        let resp = IocReputationResponse::Single { result: inner };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains(r#""mode":"single""#));
+        assert!(json.contains(r#""result""#));
+    }
+
+    #[test]
+    fn ioc_reputation_response_bulk_tagged() {
+        let resp = IocReputationResponse::Bulk { results: vec![] };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains(r#""mode":"bulk""#));
+        assert!(json.contains(r#""results""#));
     }
 }

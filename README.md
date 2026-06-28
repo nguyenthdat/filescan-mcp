@@ -13,6 +13,16 @@ A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server written
 | `filescan_search_reports` | `GET /api/reports/search` | Search reports with many filters |
 | `filescan_get_search_matches` | `POST /api/reports/search/matches` | Get IOC matches for report IDs |
 | `filescan_list_public_reports` | `GET /api/reports` | List public reports |
+| `filescan_check_file_availability` | `POST /api/files/availability` | Check if file hashes are available in Filescan |
+| `filescan_get_hash_reputation` | `GET/POST /api/reputation/hash` | Look up reputation for SHA256 hashes (single or bulk) |
+| `filescan_get_ioc_reputation` | `GET/POST /api/reputation/{ioc_type}` | Look up reputation for IOCs — domain/ip/url (single or bulk) |
+
+### Stage 2 Tool Notes
+
+- `filescan_get_hash_reputation`: Provide exactly one of `hash` (single → GET) or `hashes` (bulk → POST, 1–100 items).
+- `filescan_get_ioc_reputation`: Provide exactly one of `ioc_value` (single → GET) or `ioc_values` (bulk → POST, 1–100 items). `ioc_type` must be `domain`, `ip`, or `url`.
+- Bulk lookups are capped at 100 items for safety; this is an MCP convention, not an API limit.
+- Reputation results use tagged output: `{ "mode": "single", "result": {...} }` or `{ "mode": "bulk", "results": [...] }`.
 
 ## Setup
 
@@ -72,19 +82,23 @@ cargo clippy --all-targets -- -D warnings
 ### Implemented
 
 - All 7 Phase 1 tools are implemented exactly per the OpenAPI analysis.
+- Stage 2 tools: `filescan_check_file_availability`, `filescan_get_hash_reputation`, `filescan_get_ioc_reputation` — all 3 implemented.
 - Typed input structs with `schemars` JSON schemas for MCP tool registration.
 - Typed `ScanResponse`, `ScanPriorityResponse`, `AllUploadRelatedReportsResponse`, `ReportSearchResponse`, `MatchesResponseItem` models.
+- Stage 2 models: `ReputationResultHash`, `ReputationResultIoc`, `FuzzyhashVerdict`, `ResultMultiscan`, `ResultLookup`, `ReportForReputationCalculation`, `FileAvailabilityResponse`.
+- Tagged response wrappers (`HashReputationResponse`, `IocReputationResponse`) for stable single-vs-bulk output.
 - All 39 report search query parameters supported.
 - `ReportSearchQuery` shared between search and matches endpoints.
 - Multipart file upload with local file path validation.
 - URL-encoded form submission for URL scan.
-- Error handling for 400/401/403/404/413/422/429 with actionable messages.
+- Error handling for 400/401/403/404/413/415/422/429 with actionable messages.
 - `Retry-After` header handling for 429 rate limiting.
+- XOR input validation for reputation tools (exactly one of single or bulk must be provided).
+- Bulk request safety cap (100 items max) with runtime enforcement.
 - API key redaction in `Debug` output and logs.
 
 ### Intentionally Deferred
 
-- Stage 2 tools: `filescan_check_file_availability`, `filescan_get_hash_reputation`, `filescan_get_ioc_reputation`.
 - Stage 3 tools: `filescan_get_ioc_prevalence`, `filescan_get_similar_reports`, `filescan_similarity_search`.
 - Stage 4 metadata tools: `filescan_system_info`, `filescan_system_version`, `filescan_system_config`, etc.
 - Admin/mutation endpoints (news create/delete).

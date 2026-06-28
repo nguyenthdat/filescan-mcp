@@ -291,6 +291,83 @@ impl FilescanClient {
     }
 
     // -------------------------------------------------------------------
+    // POST /api/files/availability
+    // -------------------------------------------------------------------
+    pub async fn check_file_availability(
+        &self,
+        hashes: &[String],
+    ) -> Result<FileAvailabilityResponse, FilescanError> {
+        let path = "/api/files/availability";
+        let url = self.url(path);
+        let resp = self.http.post(&url).json(hashes).send().await?;
+        self.parse_response(Method::POST, path, resp).await
+    }
+
+    // -------------------------------------------------------------------
+    // GET /api/reputation/hash (single)
+    // -------------------------------------------------------------------
+    pub async fn hash_reputation_single(
+        &self,
+        sha256: &str,
+    ) -> Result<ReputationResultHash, FilescanError> {
+        let path = "/api/reputation/hash";
+        let url = self.url(path);
+        let resp = self
+            .http
+            .get(&url)
+            .query(&[("sha256", sha256)])
+            .send()
+            .await?;
+        self.parse_response(Method::GET, path, resp).await
+    }
+
+    // -------------------------------------------------------------------
+    // POST /api/reputation/hash (bulk)
+    // -------------------------------------------------------------------
+    pub async fn hash_reputation_bulk(
+        &self,
+        hashes: &[String],
+    ) -> Result<Vec<ReputationResultHash>, FilescanError> {
+        let path = "/api/reputation/hash";
+        let url = self.url(path);
+        let resp = self.http.post(&url).json(hashes).send().await?;
+        self.parse_response(Method::POST, path, resp).await
+    }
+
+    // -------------------------------------------------------------------
+    // GET /api/reputation/{ioc_type} (single)
+    // -------------------------------------------------------------------
+    pub async fn ioc_reputation_single(
+        &self,
+        ioc_type: &str,
+        ioc_value: &str,
+    ) -> Result<ReputationResultIoc, FilescanError> {
+        let path = format!("/api/reputation/{ioc_type}");
+        let url = self.url(&path);
+        let resp = self
+            .http
+            .get(&url)
+            .query(&[("ioc_value", ioc_value)])
+            .send()
+            .await?;
+        self.parse_response(Method::GET, &path, resp).await
+    }
+
+    // -------------------------------------------------------------------
+    // POST /api/reputation/{ioc_type} (bulk)
+    // -------------------------------------------------------------------
+    pub async fn ioc_reputation_bulk(
+        &self,
+        ioc_type: &str,
+        values: &[String],
+    ) -> Result<Vec<ReputationResultIoc>, FilescanError> {
+        let path = format!("/api/reputation/{ioc_type}");
+        let url = self.url(&path);
+        let resp = self.http.post(&url).json(values).send().await?;
+        self.parse_response(Method::POST, &path, resp).await
+    }
+
+    // -------------------------------------------------------------------
     // Response mapping
     // -------------------------------------------------------------------
 

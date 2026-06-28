@@ -135,6 +135,7 @@ impl FilescanError {
                     403 => "Your API key does not have permission for this resource, or the resource is private.",
                     404 => "The requested resource (flow/report) was not found.",
                     413 => "The file is too large. Try a smaller sample or check Filescan max upload size.",
+                    415 => "The server rejected the content type. Check that bulk reputation requests send a JSON array body.",
                     422 => "One or more input fields failed validation. See details above.",
                     429 => {
                         if let Some(secs) = retry_after {

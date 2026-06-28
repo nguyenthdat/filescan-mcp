@@ -355,3 +355,269 @@ async fn api_404_not_found() {
     assert!(msg.contains("404"));
     assert!(msg.contains("not found"));
 }
+
+// ---------------------------------------------------------------------------
+// Stage 2: Availability & Reputation contract tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn check_file_availability_success() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(POST)
+            .path("/api/files/availability")
+            .header("X-Api-Key", "test-mock-key")
+            .json_body(serde_json::json!(["abc123", "def456"]));
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(r#"{"abc123":true,"def456":false}"#);
+    });
+
+    let client = mock_client(&server);
+    let hashes = vec!["abc123".to_string(), "def456".to_string()];
+    let result = client.check_file_availability(&hashes).await.unwrap();
+    mock.assert();
+
+    assert_eq!(result.available.len(), 2);
+    assert_eq!(result.available.get("abc123"), Some(&true));
+    assert_eq!(result.available.get("def456"), Some(&false));
+}
+
+#[tokio::test]
+async fn check_file_availability_empty_body() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(POST)
+            .path("/api/files/availability")
+            .json_body(serde_json::json!([]));
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(r#"{}"#);
+    });
+
+    let client = mock_client(&server);
+    let result = client.check_file_availability(&[]).await.unwrap();
+    mock.assert();
+    assert!(result.available.is_empty());
+}
+
+#[tokio::test]
+async fn hash_reputation_single_success() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/api/reputation/hash")
+            .query_param("sha256", "abc123");
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(
+                r#"{
+                    "sha256":"abc123",
+                    "overall_verdict":"malicious",
+                    "filescan_reports":[
+                        {"verdict":"malicious","report_id":"r1"}
+                    ]
+                }"#,
+            );
+    });
+
+    let client = mock_client(&server);
+    let result = client.hash_reputation_single("abc123").await.unwrap();
+    mock.assert();
+
+    assert_eq!(result.sha256, "abc123");
+    assert!(matches!(result.overall_verdict, ReportVerdict::Malicious));
+    assert_eq!(result.filescan_reports.len(), 1);
+    assert!(result.fuzzyhash.is_none());
+    assert!(result.mdcloud.is_none());
+}
+
+#[tokio::test]
+async fn hash_reputation_bulk_success() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(POST)
+            .path("/api/reputation/hash")
+            .json_body(serde_json::json!(["abc123", "def456"]));
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(
+                r#"[
+                    {
+                        "sha256":"abc123",
+                        "overall_verdict":"benign",
+                        "filescan_reports":[]
+                    },
+                    {
+                        "sha256":"def456",
+                        "overall_verdict":"malicious",
+                        "filescan_reports":[]
+                    }
+                ]"#,
+            );
+    });
+
+    let client = mock_client(&server);
+    let hashes = vec!["abc123".to_string(), "def456".to_string()];
+    let results = client.hash_reputation_bulk(&hashes).await.unwrap();
+    mock.assert();
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].sha256, "abc123");
+    assert!(matches!(results[0].overall_verdict, ReportVerdict::Benign));
+    assert!(matches!(
+        results[1].overall_verdict,
+        ReportVerdict::Malicious
+    ));
+}
+
+#[tokio::test]
+async fn ioc_reputation_single_success() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/api/reputation/domain")
+            .query_param("ioc_value", "example.com");
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(
+                r#"{
+                    "ioc_type":"domain",
+                    "ioc_value":"example.com",
+                    "overall_verdict":"unknown",
+                    "filescan_reports":[]
+                }"#,
+            );
+    });
+
+    let client = mock_client(&server);
+    let result = client
+        .ioc_reputation_single("domain", "example.com")
+        .await
+        .unwrap();
+    mock.assert();
+
+    assert_eq!(result.ioc_type, "domain");
+    assert_eq!(result.ioc_value, "example.com");
+    assert!(matches!(result.overall_verdict, ReportVerdict::Unknown));
+    assert!(result.mdcloud.is_none());
+}
+
+#[tokio::test]
+async fn ioc_reputation_bulk_success() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(POST)
+            .path("/api/reputation/ip")
+            .json_body(serde_json::json!(["1.2.3.4", "5.6.7.8"]));
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(
+                r#"[
+                    {
+                        "ioc_type":"ip",
+                        "ioc_value":"1.2.3.4",
+                        "overall_verdict":"suspicious",
+                        "filescan_reports":[]
+                    },
+                    {
+                        "ioc_type":"ip",
+                        "ioc_value":"5.6.7.8",
+                        "overall_verdict":"unknown",
+                        "filescan_reports":[]
+                    }
+                ]"#,
+            );
+    });
+
+    let client = mock_client(&server);
+    let values = vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()];
+    let results = client.ioc_reputation_bulk("ip", &values).await.unwrap();
+    mock.assert();
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].ioc_type, "ip");
+    assert_eq!(results[1].ioc_value, "5.6.7.8");
+}
+
+#[tokio::test]
+async fn ioc_reputation_url_single() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/api/reputation/url")
+            .query_param("ioc_value", "https://example.com");
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(
+                r#"{
+                    "ioc_type":"url",
+                    "ioc_value":"https://example.com",
+                    "overall_verdict":"malicious",
+                    "mdcloud":{"scan_time":"2025-01-01T00:00:00","detected":5},
+                    "filescan_reports":[
+                        {"verdict":"malicious","report_id":"r2","report_date":"01/01/2025, 00:00:00"}
+                    ]
+                }"#,
+            );
+    });
+
+    let client = mock_client(&server);
+    let result = client
+        .ioc_reputation_single("url", "https://example.com")
+        .await
+        .unwrap();
+    mock.assert();
+
+    assert_eq!(result.ioc_type, "url");
+    assert!(result.mdcloud.is_some());
+    assert_eq!(result.mdcloud.unwrap().detected, 5);
+    assert_eq!(result.filescan_reports.len(), 1);
+    assert_eq!(
+        result.filescan_reports[0].report_date.as_deref(),
+        Some("01/01/2025, 00:00:00")
+    );
+}
+
+#[tokio::test]
+async fn reputation_415_unsupported_media_type() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/api/reputation/hash")
+            .query_param("sha256", "abc");
+        then.status(415)
+            .header("content-type", "application/json")
+            .body(r#"{"detail":"Unsupported media type"}"#);
+    });
+
+    let client = mock_client(&server);
+    let err = client.hash_reputation_single("abc").await.unwrap_err();
+    mock.assert();
+
+    let msg = err.mcp_message();
+    assert!(msg.contains("415"));
+    assert!(msg.contains("content type"));
+}
+
+#[tokio::test]
+async fn availability_returns_422() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(POST).path("/api/files/availability");
+        then.status(422).body(
+            r#"{"detail":[{"loc":["body"],"msg":"Invalid hash format","type":"value_error"}]}"#,
+        );
+    });
+
+    let client = mock_client(&server);
+    let err = client
+        .check_file_availability(&["bad".to_string()])
+        .await
+        .unwrap_err();
+    mock.assert();
+
+    let msg = err.mcp_message();
+    assert!(msg.contains("422"));
+    assert!(msg.contains("Invalid hash format"));
+}
